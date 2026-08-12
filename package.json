@@ -1,0 +1,125 @@
+{
+  "name": "rn-audio-toolkit",
+  "version": "1.3.1",
+  "description": "React Native audio playback with hooks, waveforms, exam playOnce mode, cache, and background playback for iOS & Android.",
+  "main": "lib/commonjs/index.js",
+  "module": "lib/module/index.js",
+  "types": "lib/typescript/index.d.ts",
+  "react-native": "src/index.ts",
+  "source": "src/index.ts",
+  "exports": {
+    ".": {
+      "react-native": {
+        "types": "./lib/typescript/index.d.ts",
+        "default": "./src/index.ts"
+      },
+      "types": "./lib/typescript/index.d.ts",
+      "import": "./lib/module/index.js",
+      "require": "./lib/commonjs/index.js",
+      "default": "./lib/commonjs/index.js"
+    },
+    "./package.json": "./package.json"
+  },
+  "files": [
+    "src",
+    "lib",
+    "android",
+    "ios",
+    "react-native.config.js",
+    "rn-audio-toolkit.podspec",
+    "LICENSE",
+    "!ios/build",
+    "!android/build",
+    "!android/.gradle",
+    "!**/__tests__",
+    "!**/__fixtures__",
+    "!**/__mocks__"
+  ],
+  "scripts": {
+    "build": "bob build",
+    "clean": "del-cli lib android/build",
+    "prepare": "bob build",
+    "lint": "eslint \"**/*.{js,ts,tsx}\"",
+    "lint:fix": "eslint \"**/*.{js,ts,tsx}\" --fix",
+    "format": "prettier --write \"**/*.{js,ts,tsx,json,md}\"",
+    "typecheck": "tsc --noEmit",
+    "test": "jest"
+  },
+  "keywords": [
+    "react-native",
+    "audio",
+    "audio-player",
+    "audiokit",
+    "playback",
+    "waveform",
+    "cache",
+    "preload",
+    "background-playback",
+    "language-learning",
+    "pte",
+    "ielts",
+    "audiobook",
+    "turbo-module",
+    "turbomodule",
+    "new-architecture"
+  ],
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/pawan3008/react-native-audiokit.git"
+  },
+  "author": "Pawan Vishwakarma <rockpv30@gmail.com> (https://github.com/pawan3008)",
+  "license": "MIT",
+  "bugs": {
+    "url": "https://github.com/pawan3008/react-native-audiokit/issues"
+  },
+  "homepage": "https://github.com/pawan3008/react-native-audiokit#readme",
+  "publishConfig": {
+    "registry": "https://registry.npmjs.org/"
+  },
+  "peerDependencies": {
+    "react": "*",
+    "react-native": "*"
+  },
+  "devDependencies": {
+    "@react-native-community/cli": "^15.0.0",
+    "@react-native/eslint-config": "^0.75.0",
+    "@types/jest": "^29.5.0",
+    "@types/react": "^18.2.0",
+    "del-cli": "^5.1.0",
+    "eslint": "^8.57.0",
+    "eslint-config-prettier": "^9.1.0",
+    "eslint-plugin-prettier": "^5.1.0",
+    "jest": "^29.7.0",
+    "prettier": "^3.2.5",
+    "react": "18.3.1",
+    "react-native": "0.75.0",
+    "react-native-builder-bob": "^0.30.0",
+    "ts-jest": "^29.1.0",
+    "typescript": "^5.4.0"
+  },
+  "engines": {
+    "node": ">=18"
+  },
+  "codegenConfig": {
+    "name": "RNAudioKitSpec",
+    "type": "modules",
+    "jsSrcsDir": "./src/native",
+    "android": {
+      "javaPackageName": "com.audiokit"
+    }
+  },
+  "react-native-builder-bob": {
+    "source": "src",
+    "output": "lib",
+    "targets": [
+      "commonjs",
+      "module",
+      [
+        "typescript",
+        {
+          "project": "tsconfig.build.json"
+        }
+      ]
+    ]
+  }
+}
