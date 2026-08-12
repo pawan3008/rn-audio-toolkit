@@ -1,7 +1,12 @@
+<p align="center">
+  <img src="./src/assets/banner.png" alt="rn-audio-toolkit banner" width="100%" />
+</p>
+
 # rn-audio-toolkit
 
 [![npm version](https://img.shields.io/npm/v/rn-audio-toolkit.svg)](https://www.npmjs.com/package/rn-audio-toolkit)
 [![npm downloads](https://img.shields.io/npm/dm/rn-audio-toolkit.svg)](https://www.npmjs.com/package/rn-audio-toolkit)
+[![GitHub](https://img.shields.io/badge/GitHub-pawan3008%2Frn--audio--toolkit-181717?logo=github)](https://github.com/pawan3008/rn-audio-toolkit)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](./LICENSE)
 
 React Native audio player for Android and iOS. Play, pause, seek, speed control, background playback, cache — one library, both platforms.
@@ -396,8 +401,9 @@ See the demo app: `LA_audio_demo/App.tsx` in this repo.
 
 ## Links
 
+- GitHub: https://github.com/pawan3008/rn-audio-toolkit
 - npm: https://www.npmjs.com/package/rn-audio-toolkit
-- Issues: https://github.com/pawan3008/react-native-audiokit/issues
+- Issues: https://github.com/pawan3008/rn-audio-toolkit/issues
 
 ## License
 
