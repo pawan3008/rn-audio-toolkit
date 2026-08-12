@@ -65,14 +65,14 @@
   ],
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/pawan3008/react-native-audiokit.git"
+    "url": "git+https://github.com/pawan3008/rn-audio-toolkit.git"
   },
   "author": "Pawan Vishwakarma <rockpv30@gmail.com> (https://github.com/pawan3008)",
   "license": "MIT",
   "bugs": {
-    "url": "https://github.com/pawan3008/react-native-audiokit/issues"
+    "url": "https://github.com/pawan3008/rn-audio-toolkit/issues"
   },
-  "homepage": "https://github.com/pawan3008/react-native-audiokit#readme",
+  "homepage": "https://github.com/pawan3008/rn-audio-toolkit#readme",
   "publishConfig": {
     "registry": "https://registry.npmjs.org/"
   },

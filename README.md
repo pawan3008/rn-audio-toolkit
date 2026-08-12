@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="./src/assets/banner.png" alt="rn-audio-toolkit banner" width="100%" />
+  <img src="https://raw.githubusercontent.com/pawan3008/rn-audio-toolkit/main/src/assets/banner.png" alt="rn-audio-toolkit banner" width="100%" />
 </p>
 
 # rn-audio-toolkit
