@@ -5,7 +5,6 @@ import android.content.Context
 import android.content.Intent
 import android.os.IBinder
 import androidx.core.content.ContextCompat
-import androidx.core.app.NotificationCompat
 
 class AudioKitService : Service() {
 
@@ -13,24 +12,34 @@ class AudioKitService : Service() {
 
   override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
     AudioKitNotificationHelper.ensureChannel(this)
-    val notification = NotificationCompat.Builder(this, "react_native_audio_kit")
-      .setContentTitle("Audio")
-      .setSmallIcon(android.R.drawable.ic_media_play)
-      .setOngoing(true)
-      .build()
-    startForeground(88001, notification)
-    return START_STICKY
+    val notification = AudioKitNotificationHelper.buildCurrentNotification(this)
+    if (notification == null) {
+      stopSelf(startId)
+      return START_NOT_STICKY
+    }
+    startForeground(AudioKitNotificationHelper.NOTIFICATION_ID, notification)
+    return START_NOT_STICKY
+  }
+
+  override fun onDestroy() {
+    if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.N) {
+      stopForeground(STOP_FOREGROUND_REMOVE)
+    } else {
+      @Suppress("DEPRECATION")
+      stopForeground(true)
+    }
+    AudioKitNotificationHelper.clear(this)
+    super.onDestroy()
   }
 
   companion object {
     fun start(context: Context) {
-      val intent = Intent(context, AudioKitService::class.java)
-      ContextCompat.startForegroundService(context, intent)
+      ContextCompat.startForegroundService(context, Intent(context, AudioKitService::class.java))
     }
 
     fun stop(context: Context) {
       context.stopService(Intent(context, AudioKitService::class.java))
-      AudioKitNotificationHelper.cancel(context)
+      AudioKitNotificationHelper.clear(context)
     }
   }
 }

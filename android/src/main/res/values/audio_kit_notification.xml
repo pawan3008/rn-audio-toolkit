@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+  <color name="audio_kit_progress_tint">#FF315EFB</color>
+  <color name="audio_kit_progress_track">#33315EFB</color>
+
+  <string name="audio_kit_artwork">Artwork</string>
+  <string name="audio_kit_previous">Previous</string>
+  <string name="audio_kit_play">Play</string>
+  <string name="audio_kit_pause">Pause</string>
+  <string name="audio_kit_next">Next</string>
+</resources>

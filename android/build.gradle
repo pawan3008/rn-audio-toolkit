@@ -13,6 +13,9 @@ buildscript {
 }
 
 apply plugin: "com.android.library"
+if (project.hasProperty("newArchEnabled") && project.newArchEnabled == "true") {
+  apply plugin: "com.facebook.react"
+}
 apply plugin: "kotlin-android"
 
 android {
