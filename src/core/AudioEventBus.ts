@@ -1,4 +1,8 @@
-import type { AudioEventName, AudioEventListener, AudioEventUnsubscribe } from '../types/AudioEvents';
+import type {
+  AudioEventName,
+  AudioEventListener,
+  AudioEventUnsubscribe,
+} from '../types/AudioEvents';
 
 type ListenerMap = {
   [K in AudioEventName]: Set<AudioEventListener<K>>;
@@ -20,6 +24,8 @@ export class AudioEventBus {
     queueChange: new Set(),
     interruption: new Set(),
     routeChange: new Set(),
+    remotePrevious: new Set(),
+    remoteNext: new Set(),
   };
 
   on<T extends AudioEventName>(
@@ -28,11 +34,16 @@ export class AudioEventBus {
   ): AudioEventUnsubscribe {
     this.listeners[event].add(listener as AudioEventListener<AudioEventName>);
     return () => {
-      this.listeners[event].delete(listener as AudioEventListener<AudioEventName>);
+      this.listeners[event].delete(
+        listener as AudioEventListener<AudioEventName>,
+      );
     };
   }
 
-  emit<T extends AudioEventName>(event: T, payload: Parameters<AudioEventListener<T>>[0]): void {
+  emit<T extends AudioEventName>(
+    event: T,
+    payload: Parameters<AudioEventListener<T>>[0],
+  ): void {
     this.listeners[event].forEach(listener => {
       (listener as AudioEventListener<T>)(payload);
     });
