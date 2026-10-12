@@ -59,9 +59,15 @@ RCT_EXPORT_MODULE(RNAudioKitSpec)
 
 - (NSArray<NSString *> *)supportedEvents
 {
+  // `remotePrevious` and `remoteNext` are included so the JS NativeEventBridge
+  // can call addListener for them on iOS without RN throwing
+  // "<event> is not a supported event type for AudioKit". iOS does not emit
+  // these events (the remote prev/next commands stay disabled), so listing them
+  // only prevents the addListener crash; no iOS behavior changes.
   return @[
     @"play", @"pause", @"resume", @"stop", @"complete",
-    @"buffer", @"progress", @"error", @"interruption", @"routeChange"
+    @"buffer", @"progress", @"error", @"interruption", @"routeChange",
+    @"remotePrevious", @"remoteNext"
   ];
 }
 
