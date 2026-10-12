@@ -1,0 +1,106 @@
+<?xml version="1.0" encoding="utf-8"?>
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+  android:layout_width="match_parent"
+  android:layout_height="52dp"
+  android:gravity="center_vertical"
+  android:orientation="horizontal"
+  android:paddingEnd="4dp">
+
+  <ImageView
+    android:id="@+id/audio_kit_notification_artwork"
+    android:layout_width="48dp"
+    android:layout_height="48dp"
+    android:contentDescription="@string/audio_kit_artwork"
+    android:scaleType="centerCrop" />
+
+  <LinearLayout
+    android:layout_width="0dp"
+    android:layout_height="match_parent"
+    android:layout_marginStart="8dp"
+    android:layout_marginEnd="6dp"
+    android:layout_weight="1"
+    android:gravity="center_vertical"
+    android:orientation="vertical">
+
+    <TextView
+      android:id="@+id/audio_kit_notification_title"
+      android:layout_width="match_parent"
+      android:layout_height="wrap_content"
+      android:ellipsize="end"
+      android:maxLines="1"
+      android:textColor="?android:attr/textColorPrimary"
+      android:textSize="14sp"
+      android:textStyle="bold" />
+
+    <TextView
+      android:id="@+id/audio_kit_notification_artist"
+      android:layout_width="match_parent"
+      android:layout_height="wrap_content"
+      android:ellipsize="end"
+      android:maxLines="1"
+      android:textColor="?android:attr/textColorSecondary"
+      android:textSize="11sp" />
+
+    <TextView
+      android:id="@+id/audio_kit_notification_album"
+      android:layout_width="match_parent"
+      android:layout_height="wrap_content"
+      android:ellipsize="end"
+      android:maxLines="1"
+      android:textColor="?android:attr/textColorSecondary"
+      android:textSize="10sp" />
+  </LinearLayout>
+
+  <LinearLayout
+    android:layout_width="108dp"
+    android:layout_height="match_parent"
+    android:gravity="center"
+    android:orientation="vertical">
+
+    <LinearLayout
+      android:layout_width="match_parent"
+      android:layout_height="0dp"
+      android:layout_weight="1"
+      android:gravity="center"
+      android:orientation="horizontal">
+
+      <ImageView
+        android:id="@+id/audio_kit_notification_previous"
+        android:layout_width="36dp"
+        android:layout_height="36dp"
+        android:background="?android:attr/selectableItemBackgroundBorderless"
+        android:contentDescription="@string/audio_kit_previous"
+        android:padding="8dp"
+        android:src="@drawable/audio_kit_ic_previous" />
+
+      <ImageView
+        android:id="@+id/audio_kit_notification_play_pause"
+        android:layout_width="36dp"
+        android:layout_height="36dp"
+        android:background="?android:attr/selectableItemBackgroundBorderless"
+        android:contentDescription="@string/audio_kit_pause"
+        android:padding="8dp"
+        android:src="@drawable/audio_kit_ic_pause" />
+
+      <ImageView
+        android:id="@+id/audio_kit_notification_next"
+        android:layout_width="36dp"
+        android:layout_height="36dp"
+        android:background="?android:attr/selectableItemBackgroundBorderless"
+        android:contentDescription="@string/audio_kit_next"
+        android:padding="8dp"
+        android:src="@drawable/audio_kit_ic_next" />
+    </LinearLayout>
+
+    <ProgressBar
+      android:id="@+id/audio_kit_notification_progress"
+      style="?android:attr/progressBarStyleHorizontal"
+      android:layout_width="match_parent"
+      android:layout_height="4dp"
+      android:layout_marginStart="4dp"
+      android:layout_marginEnd="4dp"
+      android:indeterminateTint="@color/audio_kit_progress_tint"
+      android:progressBackgroundTint="@color/audio_kit_progress_track"
+      android:progressTint="@color/audio_kit_progress_tint" />
+  </LinearLayout>
+</LinearLayout>

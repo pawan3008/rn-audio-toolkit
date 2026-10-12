@@ -14,7 +14,9 @@ export type AudioEventName =
   | 'volumeChange'
   | 'queueChange'
   | 'interruption'
-  | 'routeChange';
+  | 'routeChange'
+  | 'remotePrevious'
+  | 'remoteNext';
 
 export interface ProgressEvent {
   position: number;
@@ -42,6 +44,8 @@ export type AudioEventPayload = {
   queueChange: { index: number; total: number };
   interruption: { type: 'began' | 'ended'; reason?: string };
   routeChange: { outputs: string[] };
+  remotePrevious: Record<string, never>;
+  remoteNext: Record<string, never>;
 };
 
 export type AudioEventListener<T extends AudioEventName> = (

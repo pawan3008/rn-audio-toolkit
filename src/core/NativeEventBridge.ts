@@ -15,6 +15,8 @@ const NATIVE_EVENTS = [
   'error',
   'interruption',
   'routeChange',
+  'remotePrevious',
+  'remoteNext',
 ] as const;
 
 type NativeEventName = (typeof NATIVE_EVENTS)[number];
@@ -31,7 +33,8 @@ function mapNativePayload(
       return {
         position: Number(payload.position ?? 0),
         duration: Number(payload.duration ?? 0),
-        buffered: payload.buffered != null ? Number(payload.buffered) : undefined,
+        buffered:
+          payload.buffered != null ? Number(payload.buffered) : undefined,
       };
     case 'error':
       return {
@@ -49,6 +52,9 @@ function mapNativePayload(
           ? payload.outputs.map(String)
           : [],
       };
+    case 'remotePrevious':
+    case 'remoteNext':
+      return {};
     case 'play':
     case 'pause':
     case 'resume':
@@ -73,7 +79,10 @@ export function initializeNativeEventBridge(events: AudioEventBus): void {
     emitter?.addListener(eventName, (payload: Record<string, unknown>) => {
       const mapped = mapNativePayload(eventName, payload ?? {});
       if (mapped != null) {
-        events.emit(eventName as AudioEventName, mapped as AudioEventPayload[AudioEventName]);
+        events.emit(
+          eventName as AudioEventName,
+          mapped as AudioEventPayload[AudioEventName],
+        );
       }
     });
   });
