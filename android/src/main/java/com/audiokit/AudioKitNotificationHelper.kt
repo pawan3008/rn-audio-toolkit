@@ -11,12 +11,30 @@ import android.os.Build
 import android.view.View
 import android.widget.RemoteViews
 import androidx.core.app.NotificationCompat
+import androidx.media3.session.MediaSession
+import androidx.media3.session.MediaStyleNotificationHelper
 import com.facebook.react.bridge.ReadableMap
 
 object AudioKitNotificationHelper {
   private const val CHANNEL_ID = "react_native_audio_kit"
   private const val PROGRESS_MAX = 1_000
   const val NOTIFICATION_ID = 88001
+
+  // The media3 MediaSession created in AudioKitEngine. When present, the
+  // notification is built as a MediaStyle notification linked to this session
+  // so the system places it in the single shared media slot (and lets other
+  // media apps replace it / be replaced by it) instead of showing a separate
+  // notification. Threaded in from the engine; never created here.
+  @Volatile
+  private var mediaSession: MediaSession? = null
+
+  fun setMediaSession(session: MediaSession?) {
+    mediaSession = session
+  }
+
+  fun clearMediaSession() {
+    mediaSession = null
+  }
 
   private data class NotificationState(
     val title: String,
@@ -47,6 +65,28 @@ object AudioKitNotificationHelper {
       artwork = null,
       positionMs = 0L,
       durationMs = 0L,
+      generation = generation
+    )
+  }
+
+  // Non-destructive "next track" state update. Used when loading the NEXT
+  // source so the media notification does NOT blink/blank between tracks. If a
+  // notification state already exists (hot track-to-track transition), copy it
+  // and swap ONLY the new metadata + generation, preserving the previous
+  // artwork/position/duration as a visual bridge and keeping isPlaying=false
+  // until playback actually starts (publishTransportState flips it to playing).
+  // On genuine first/cold start (state == null) fall back to the blank prepare.
+  fun prepareNext(source: ReadableMap, generation: Long) {
+    val current = state
+    if (current == null) {
+      prepare(source, false, generation)
+      return
+    }
+    state = current.copy(
+      title = source.safeString("title").ifBlank { "Audio" },
+      artist = source.safeString("artist"),
+      album = source.safeString("album"),
+      isPlaying = false,
       generation = generation
     )
   }
@@ -112,6 +152,19 @@ object AudioKitNotificationHelper {
 
   fun buildCurrentNotification(context: Context): Notification? {
     val current = state ?: return null
+
+    // Preferred path: link the notification to the existing media3 MediaSession
+    // via MediaStyle so Android treats it as the active media session and shows
+    // a single, shared system media notification.
+    val session = mediaSession
+    if (session != null) {
+      try {
+        return buildMediaStyleNotification(context, current, session)
+      } catch (_: RuntimeException) {
+        // Fall through to the legacy custom notification below.
+      }
+    }
+
     val builder = baseBuilder(context, current)
     val artwork = current.artwork
     if (artwork == null) {
@@ -127,6 +180,60 @@ object AudioKitNotificationHelper {
     } catch (_: RuntimeException) {
       buildFallbackNotification(context, baseBuilder(context, current), current)
     }
+  }
+
+  private fun buildMediaStyleNotification(
+    context: Context,
+    current: NotificationState,
+    session: MediaSession
+  ): Notification {
+    val playPauseIcon = if (current.isPlaying) {
+      android.R.drawable.ic_media_pause
+    } else {
+      android.R.drawable.ic_media_play
+    }
+    val playPauseAction = if (current.isPlaying) {
+      AudioKitActionReceiver.ACTION_PAUSE
+    } else {
+      AudioKitActionReceiver.ACTION_PLAY
+    }
+    val playPauseLabel = context.getString(
+      if (current.isPlaying) R.string.audio_kit_pause else R.string.audio_kit_play
+    )
+
+    // Standard transport buttons wired to the existing broadcast receiver so the
+    // same player controls run as before (previous / play-pause / next). These
+    // become the MediaStyle transport controls on the notification and lock
+    // screen, and the three indices are promoted to the compact view.
+    val builder = baseBuilder(context, current)
+      .setLargeIcon(current.artwork)
+      .addAction(
+        NotificationCompat.Action(
+          android.R.drawable.ic_media_previous,
+          context.getString(R.string.audio_kit_previous),
+          actionPendingIntent(context, AudioKitActionReceiver.ACTION_PREVIOUS)
+        )
+      )
+      .addAction(
+        NotificationCompat.Action(
+          playPauseIcon,
+          playPauseLabel,
+          actionPendingIntent(context, playPauseAction)
+        )
+      )
+      .addAction(
+        NotificationCompat.Action(
+          android.R.drawable.ic_media_next,
+          context.getString(R.string.audio_kit_next),
+          actionPendingIntent(context, AudioKitActionReceiver.ACTION_NEXT)
+        )
+      )
+      .setStyle(
+        MediaStyleNotificationHelper.MediaStyle(session)
+          .setShowActionsInCompactView(0, 1, 2)
+      )
+
+    return builder.build()
   }
 
   private fun baseBuilder(

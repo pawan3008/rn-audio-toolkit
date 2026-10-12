@@ -102,7 +102,7 @@ class AudioKitEngine(private val reactContext: ReactApplicationContext) : Defaul
         .build()
 
       if (configBool("showNotification", false)) {
-        AudioKitNotificationHelper.prepare(source, true, generation)
+        AudioKitNotificationHelper.prepareNext(source, generation)
       }
 
       requestAudioFocus()
@@ -398,16 +398,85 @@ class AudioKitEngine(private val reactContext: ReactApplicationContext) : Defaul
       override fun setPlayWhenReady(playWhenReady: Boolean) {
         if (playWhenReady) resumeInternal() else pauseInternal()
       }
+
+      // Fix 3 (next/previous in notification): the player uses a single
+      // MediaItem (no real playlist), so instead of letting media3 try to move
+      // a non-existent playlist position, route the seek-to-next/previous
+      // transport commands to the SAME remoteNext()/remotePrevious() handlers
+      // the notification addAction + AudioKitActionReceiver already use. This
+      // makes the lock-screen / MediaStyle transport buttons and the
+      // notification buttons follow one path (emit remoteNext/remotePrevious).
+      override fun seekToNext() {
+        this@AudioKitEngine.remoteNext()
+      }
+
+      override fun seekToPrevious() {
+        this@AudioKitEngine.remotePrevious()
+      }
+
+      override fun seekToNextMediaItem() {
+        this@AudioKitEngine.remoteNext()
+      }
+
+      override fun seekToPreviousMediaItem() {
+        this@AudioKitEngine.remotePrevious()
+      }
+
+      // Fix 3b (next icon invisible / previous dead): in media3 the commands a
+      // MediaSession can advertise and honor are intersected with the UNDERLYING
+      // player's available commands. The ExoPlayer uses a single MediaItem (no
+      // playlist), so it does NOT report COMMAND_SEEK_TO_NEXT(_MEDIA_ITEM) /
+      // COMMAND_SEEK_TO_PREVIOUS(_MEDIA_ITEM) as available. That made MediaStyle
+      // hide the NEXT button and caused the session to drop the PREVIOUS command
+      // before it ever reached the seekToPrevious() override above. Advertising
+      // the commands only in onConnect() is not enough because the session still
+      // gates on the wrapped player's own available commands. Override the
+      // command surface here so media3/MediaStyle consistently treat next/
+      // previous as available: render the NEXT icon and dispatch NEXT/PREVIOUS
+      // to the seek overrides above (which route to remoteNext()/remotePrevious()).
+      override fun getAvailableCommands(): Player.Commands {
+        return Player.Commands.Builder()
+          .addAll(super.getAvailableCommands())
+          .add(Player.COMMAND_SEEK_TO_NEXT)
+          .add(Player.COMMAND_SEEK_TO_NEXT_MEDIA_ITEM)
+          .add(Player.COMMAND_SEEK_TO_PREVIOUS)
+          .add(Player.COMMAND_SEEK_TO_PREVIOUS_MEDIA_ITEM)
+          .build()
+      }
+
+      override fun isCommandAvailable(command: Int): Boolean {
+        return when (command) {
+          Player.COMMAND_SEEK_TO_NEXT,
+          Player.COMMAND_SEEK_TO_NEXT_MEDIA_ITEM,
+          Player.COMMAND_SEEK_TO_PREVIOUS,
+          Player.COMMAND_SEEK_TO_PREVIOUS_MEDIA_ITEM -> true
+          else -> super.isCommandAvailable(command)
+        }
+      }
     }
     val callback = object : MediaSession.Callback {
       override fun onConnect(
         session: MediaSession,
         controller: MediaSession.ControllerInfo
       ): MediaSession.ConnectionResult {
+        // Fix 3 (next/previous in notification): MediaStyle derives which
+        // transport buttons to render from the session's advertised player
+        // commands. Previously only COMMAND_PLAY_PAUSE (+ metadata) was
+        // advertised, so MediaStyle hid the next/previous actions even though
+        // the notification added all three. Advertise the seek-to-next/previous
+        // commands (both the plain and media-item variants, to cover how
+        // MediaStyle/media3 may invoke them). The ForwardingPlayer overrides
+        // above divert these to remoteNext()/remotePrevious(), so no real
+        // (non-existent) playlist seek occurs. This is additive — COMMAND_PLAY_PAUSE
+        // and the metadata commands are unchanged.
         val commands = Player.Commands.Builder()
           .add(Player.COMMAND_PLAY_PAUSE)
           .add(Player.COMMAND_GET_CURRENT_MEDIA_ITEM)
           .add(Player.COMMAND_GET_METADATA)
+          .add(Player.COMMAND_SEEK_TO_NEXT)
+          .add(Player.COMMAND_SEEK_TO_NEXT_MEDIA_ITEM)
+          .add(Player.COMMAND_SEEK_TO_PREVIOUS)
+          .add(Player.COMMAND_SEEK_TO_PREVIOUS_MEDIA_ITEM)
           .build()
         return MediaSession.ConnectionResult.AcceptedResultBuilder(session)
           .setAvailableSessionCommands(androidx.media3.session.SessionCommands.EMPTY)
@@ -418,9 +487,14 @@ class AudioKitEngine(private val reactContext: ReactApplicationContext) : Defaul
     mediaSession = MediaSession.Builder(reactContext, remoteControlPlayer)
       .setCallback(callback)
       .build()
+    // Share the session with the notification helper so the media notification
+    // is built as a MediaStyle notification linked to this session (single
+    // shared system media slot). Do NOT create a second session here.
+    AudioKitNotificationHelper.setMediaSession(mediaSession)
   }
 
   private fun releaseMediaSession() {
+    AudioKitNotificationHelper.clearMediaSession()
     mediaSession?.release()
     mediaSession = null
   }
@@ -614,6 +688,16 @@ class AudioKitEngine(private val reactContext: ReactApplicationContext) : Defaul
             AudioManager.AUDIOFOCUS_LOSS -> {
               wasPlayingBeforeFocusLoss = player?.isPlaying == true
               pauseInternal(abandonFocus = false)
+              // Permanent focus loss means another app/web/call took exclusive
+              // audio focus (e.g. the user opened YouTube and kept it). The
+              // transient branch already notifies JS via interruption/began;
+              // permanent loss must do the same so the JS layer gets a reliable
+              // signal (it only self-pauses on a began event) and can
+              // self-correct if native pause ever fails. We do NOT resume here --
+              // resume stays gated behind the AUDIOFOCUS_GAIN branch and the
+              // resumeAfterFocusGain/resumeAfterCall flags (both false in-app),
+              // so background playback and no-auto-resume behavior are preserved.
+              emit("interruption", interruptionMap("began"))
             }
             AudioManager.AUDIOFOCUS_LOSS_TRANSIENT -> {
               wasPlayingBeforeFocusLoss = player?.isPlaying == true

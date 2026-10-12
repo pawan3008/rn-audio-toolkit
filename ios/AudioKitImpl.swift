@@ -128,7 +128,29 @@ public final class AudioKitImpl: NSObject {
   private var remotePlayTarget: Any?
   private var remotePauseTarget: Any?
   private var remoteToggleTarget: Any?
+  private var remoteNextTarget: Any?
+  private var remotePrevTarget: Any?
   private var preloadAssets: [String: AVURLAsset] = [:]
+  // Lightweight poll that detects when ANOTHER app/web (e.g. YouTube in Safari)
+  // starts audio against our exclusive, non-mixing .playback session. iOS does
+  // not post silenceSecondaryAudioHint to a non-mixing session and does not
+  // reliably deliver interruption/.began to a backgrounded .playback app in that
+  // case, so we poll AVAudioSession.isOtherAudioPlaying while playing and pause
+  // ourselves. The timer runs ONLY while actually playing and is invalidated on
+  // pause/stop/release/deinit to avoid battery drain and leaks.
+  private var otherAudioPollTimer: Timer?
+  // Guards against repeated pause+emit while other audio stays active; reset once
+  // we are no longer playing (see stopOtherAudioPoll()).
+  private var didPauseForOtherAudio = false
+  // Timestamp of the last play/resume. Right after we start, iOS can briefly
+  // report isOtherAudioPlaying == true (session still settling / another app's
+  // session not yet yielded), which caused a FALSE pause on physical devices.
+  // We ignore the poll during a short grace window after start.
+  private var otherAudioGraceUntil: Date = .distantPast
+  // Number of CONSECUTIVE poll ticks that saw isOtherAudioPlaying == true. We
+  // only pause after it stays true for 2 ticks, so a single transient blip does
+  // not stop our own playback.
+  private var otherAudioTrueStreak = 0
 
   private let cacheDirectory: URL = {
     let base = FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask).first!
@@ -150,6 +172,7 @@ public final class AudioKitImpl: NSObject {
     artworkDownload?.cancel()
     removeRemoteCommandTargets()
     removeObservers()
+    stopOtherAudioPoll()
   }
 
   // MARK: - Configure
@@ -211,11 +234,13 @@ public final class AudioKitImpl: NSObject {
       loadArtwork(artwork, generation: generation, sourceId: uri)
     }
     emit("play", playbackStateDict())
+    startOtherAudioPoll()
     completion(nil)
   }
 
   @objc public func pauseWithCompletion(_ completion: @escaping (NSError?) -> Void) {
     player?.pause()
+    stopOtherAudioPoll()
     emit("pause", playbackStateDict())
     completion(nil)
   }
@@ -249,6 +274,7 @@ public final class AudioKitImpl: NSObject {
         self.player?.play()
         self.player?.rate = self.playbackSpeed
         self.emit("resume", self.playbackStateDict())
+        self.startOtherAudioPoll()
         completion(nil)
       }
       return
@@ -257,6 +283,7 @@ public final class AudioKitImpl: NSObject {
     player?.play()
     player?.rate = playbackSpeed
     emit("resume", playbackStateDict())
+    startOtherAudioPoll()
     completion(nil)
   }
 
@@ -266,6 +293,7 @@ public final class AudioKitImpl: NSObject {
     currentMetadata.removeAll()
     clearNowPlayingInfo()
     removeTimeObserver()
+    stopOtherAudioPoll()
     player?.pause()
     player?.seek(to: .zero)
     if configBool("releaseOnStop", default: true) {
@@ -648,6 +676,7 @@ public final class AudioKitImpl: NSObject {
     clearNowPlayingInfo()
     removeRemoteCommandTargets()
     removeTimeObserver()
+    stopOtherAudioPoll()
     player?.pause()
     player = nil
     playerItem = nil
@@ -722,6 +751,18 @@ public final class AudioKitImpl: NSObject {
       name: AVAudioSession.routeChangeNotification,
       object: AVAudioSession.sharedInstance()
     )
+    // Secondary-audio hint: iOS posts this when ANOTHER app/web (e.g. YouTube
+    // in Safari) actually starts audio against our non-mixing .playback
+    // session. Unlike interruptionNotification, this hint IS reliably delivered
+    // for competing app/web audio, closing the gap where our MP3 kept mixing.
+    // It is NOT posted on plain backgrounding or screen lock, so background
+    // playback with no competing audio stays working untouched.
+    NotificationCenter.default.addObserver(
+      self,
+      selector: #selector(handleSilenceSecondaryAudioHint),
+      name: AVAudioSession.silenceSecondaryAudioHintNotification,
+      object: AVAudioSession.sharedInstance()
+    )
   }
 
   private func removeObservers() {
@@ -736,7 +777,13 @@ public final class AudioKitImpl: NSObject {
     }
     if !configBool("backgroundPlayback", default: false) {
       pauseWithCompletion { _ in }
+      return
     }
+    // backgroundPlayback is on: normal backgrounding / screen lock must KEEP
+    // PLAYING. Only pause when another app actually owns audio right now (e.g.
+    // the user switched to YouTube in Safari, which backgrounds us). The guarded
+    // check never pauses merely because we backgrounded with no competing audio.
+    pauseIfOtherAudioPlaying()
   }
 
   @objc private func appWillEnterForeground() {
@@ -764,6 +811,29 @@ public final class AudioKitImpl: NSObject {
     }
   }
 
+  @objc private func handleSilenceSecondaryAudioHint(_ notification: Notification) {
+    guard let info = notification.userInfo,
+          let typeValue = info[AVAudioSessionSilenceSecondaryAudioHintTypeKey] as? UInt,
+          let type = AVAudioSession.SilenceSecondaryAudioHintType(rawValue: typeValue) else { return }
+
+    if type == .begin {
+      // Another app/web started audio (the exact YouTube-in-Safari case that
+      // interruptionNotification does NOT reliably report for our .playback
+      // session). Pause the SAME way handleInterruption(.began) does and emit
+      // the IDENTICAL began payload so the JS layer (which already self-pauses
+      // on interruption/began) stays in sync with zero JS change.
+      wasPlayingBeforeInterruption = (player?.rate ?? 0) > 0
+      pauseWithCompletion { _ in }
+      emit("interruption", ["type": "began", "reason": "interruption"])
+    } else if type == .end {
+      // The other audio ended. Do NOT auto-resume — resumeAfterInterruption /
+      // resumeAfterCall are false and AudioKit.setAutoResume(false); the user
+      // resumes manually. Emit ended only for symmetry with
+      // handleInterruption(.ended).
+      emit("interruption", ["type": "ended"])
+    }
+  }
+
   @objc private func screenDidLock() {
     if configBool("stopOnScreenLock", default: false) {
       stopWithCompletion { _ in }
@@ -777,6 +847,11 @@ public final class AudioKitImpl: NSObject {
 
     let outputs = AVAudioSession.sharedInstance().currentRoute.outputs.map { $0.portType.rawValue }
     emit("routeChange", ["outputs": outputs])
+
+    // A route change can accompany another app grabbing audio; prompt-check so
+    // we pause right away rather than waiting for the next poll tick. Guarded so
+    // it only pauses when another app is actually playing.
+    pauseIfOtherAudioPlaying()
 
     if reason == .oldDeviceUnavailable {
       let headphones = ["Headphones", "HeadsetMic"]
@@ -795,6 +870,85 @@ public final class AudioKitImpl: NSObject {
     }
   }
 
+  // MARK: - Other-audio detection (iOS exclusive .playback fix)
+
+  // Start the repeating poll ONLY after a successful play/resume (while rate>0).
+  // Scheduling/invalidation are guarded onto the main thread so the Timer lives
+  // on the main runloop. [weak self] prevents a retain cycle via the Timer.
+  private func startOtherAudioPoll() {
+    DispatchQueue.main.async { [weak self] in
+      guard let self else { return }
+      // Reset the de-dupe guard for this fresh playback session so a new "other
+      // audio" event can pause us again.
+      self.didPauseForOtherAudio = false
+      self.otherAudioTrueStreak = 0
+      // Ignore the poll for a short window after start so a settling session's
+      // transient isOtherAudioPlaying == true does not falsely pause us.
+      self.otherAudioGraceUntil = Date().addingTimeInterval(1.5)
+      self.otherAudioPollTimer?.invalidate()
+      let timer = Timer(timeInterval: 0.75, repeats: true) { [weak self] _ in
+        self?.pauseIfOtherAudioPlaying()
+      }
+      // .common so the poll keeps firing during scroll / UI tracking.
+      RunLoop.main.add(timer, forMode: .common)
+      self.otherAudioPollTimer = timer
+    }
+  }
+
+  // Invalidate the poll on pause/stop/release/deinit and reset the de-dupe guard
+  // so no battery drain or retain cycle persists while we are not playing.
+  private func stopOtherAudioPoll() {
+    DispatchQueue.main.async { [weak self] in
+      guard let self else { return }
+      self.otherAudioPollTimer?.invalidate()
+      self.otherAudioPollTimer = nil
+      self.didPauseForOtherAudio = false
+    }
+  }
+
+  // Pause + emit exactly once if another app owns audio while we are playing.
+  // isOtherAudioPlaying is a Bool point-in-time poll; combined with the rate>0
+  // check this never fires on plain backgrounding/screen lock with no competing
+  // audio, so normal background playback keeps working untouched.
+  private func pauseIfOtherAudioPlaying() {
+    let isPlaying = (player?.rate ?? 0) > 0
+    guard isPlaying else {
+      // No longer playing: reset the guards so the next competing-audio event
+      // after a resume can pause us again.
+      didPauseForOtherAudio = false
+      otherAudioTrueStreak = 0
+      return
+    }
+    // Grace window right after start: a settling session can momentarily report
+    // other audio even when nothing is really playing. Ignore it, so our own
+    // playback is never falsely paused immediately after Play.
+    if Date() < otherAudioGraceUntil {
+      otherAudioTrueStreak = 0
+      return
+    }
+    guard AVAudioSession.sharedInstance().isOtherAudioPlaying else {
+      // Not (or no longer) competing: reset the streak so a future real event
+      // needs its own fresh confirmation.
+      otherAudioTrueStreak = 0
+      return
+    }
+    // Require the signal to persist for 2 consecutive ticks before pausing, so a
+    // single transient isOtherAudioPlaying blip cannot stop our playback.
+    otherAudioTrueStreak += 1
+    guard otherAudioTrueStreak >= 2 else { return }
+    // Already paused for this active other-audio session; avoid repeated emits
+    // while the other audio keeps playing.
+    guard !didPauseForOtherAudio else { return }
+    didPauseForOtherAudio = true
+
+    // Mirror handleInterruption(.began): record prior playing state, pause via
+    // the real pause, and emit the IDENTICAL began payload the JS layer already
+    // self-pauses on. Do NOT auto-resume — the user resumes manually.
+    wasPlayingBeforeInterruption = true
+    pauseWithCompletion { _ in }
+    emit("interruption", ["type": "began", "reason": "interruption"])
+  }
+
   // MARK: - Audio session & Now Playing
 
   private func activateAudioSession() throws {
@@ -803,18 +957,36 @@ public final class AudioKitImpl: NSObject {
     let focus = configString("audioFocus", default: "exclusive")
     let highQuality = configBool("highQualityPlayback", default: true)
 
-    var category: AVAudioSession.Category = background ? .playback : .soloAmbient
+    let category: AVAudioSession.Category = background ? .playback : .soloAmbient
     var options: AVAudioSession.CategoryOptions = []
     if focus == "duck" { options.insert(.duckOthers) }
-    if focus == "mix" { category = .playback; options.insert(.mixWithOthers) }
+    if focus == "mix" { options.insert(.mixWithOthers) }
     if highQuality {
       options.insert(.allowBluetoothA2DP)
       options.insert(.allowAirPlay)
     }
-    try session.setCategory(category, mode: .default, options: options)
-    if highQuality {
-      try session.setPreferredIOBufferDuration(0.005)
+
+    // setCategory can fail on some physical devices for a given option combo
+    // (OSStatus -50). Fall back to the category with no extra options so
+    // playback still activates instead of failing the whole play() with -50.
+    do {
+      try session.setCategory(category, mode: .default, options: options)
+    } catch {
+      NSLog("[MP3][native] setCategory(options:%lu) failed: %@ — retrying with no options", options.rawValue, String(describing: error))
+      try session.setCategory(category, mode: .default, options: [])
     }
+
+    // A 5 ms preferred IO buffer is rejected on real hardware that cannot honor
+    // it, throwing OSStatus -50. It is only a hint, so never let it fail
+    // activation — log and continue with the system default buffer.
+    if highQuality {
+      do {
+        try session.setPreferredIOBufferDuration(0.005)
+      } catch {
+        NSLog("[MP3][native] setPreferredIOBufferDuration(0.005) failed, using default: %@", String(describing: error))
+      }
+    }
+
     try session.setActive(true)
     audioSessionActive = true
   }
@@ -848,8 +1020,8 @@ public final class AudioKitImpl: NSObject {
     center.changePlaybackPositionCommand.isEnabled = false
     center.skipForwardCommand.isEnabled = false
     center.skipBackwardCommand.isEnabled = false
-    center.nextTrackCommand.isEnabled = false
-    center.previousTrackCommand.isEnabled = false
+    center.nextTrackCommand.isEnabled = enabled
+    center.previousTrackCommand.isEnabled = enabled
     guard enabled else { return }
 
     remotePlayTarget = center.playCommand.addTarget { [weak self] _ in
@@ -873,6 +1045,16 @@ public final class AudioKitImpl: NSObject {
       }
       return self.acceptRemoteResume()
     }
+    remoteNextTarget = center.nextTrackCommand.addTarget { [weak self] _ in
+      guard let self else { return .commandFailed }
+      self.emit("remoteNext", [:])
+      return .success
+    }
+    remotePrevTarget = center.previousTrackCommand.addTarget { [weak self] _ in
+      guard let self else { return .commandFailed }
+      self.emit("remotePrevious", [:])
+      return .success
+    }
   }
 
   private func acceptRemoteResume() -> MPRemoteCommandHandlerStatus {
@@ -893,12 +1075,18 @@ public final class AudioKitImpl: NSObject {
     if let target = remotePlayTarget { center.playCommand.removeTarget(target) }
     if let target = remotePauseTarget { center.pauseCommand.removeTarget(target) }
     if let target = remoteToggleTarget { center.togglePlayPauseCommand.removeTarget(target) }
+    if let target = remoteNextTarget { center.nextTrackCommand.removeTarget(target) }
+    if let target = remotePrevTarget { center.previousTrackCommand.removeTarget(target) }
     center.playCommand.isEnabled = false
     center.pauseCommand.isEnabled = false
     center.togglePlayPauseCommand.isEnabled = false
+    center.nextTrackCommand.isEnabled = false
+    center.previousTrackCommand.isEnabled = false
     remotePlayTarget = nil
     remotePauseTarget = nil
     remoteToggleTarget = nil
+    remoteNextTarget = nil
+    remotePrevTarget = nil
   }
 
   private func updateNowPlayingInfo() {
